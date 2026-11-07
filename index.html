@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1014">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Bieżnia</title>
+<style>
+  :root {
+    --bg: #0e1014;
+    --surface: #171a20;
+    --surface-2: #20242c;
+    --line: #2a2f39;
+    --text: #eef1f5;
+    --muted: #8b94a3;
+    --go: #3ddc84;
+    --go-ink: #06210f;
+    --pause: #f5b83d;
+    --pause-ink: #2a1c00;
+    --stop: #ff5c5c;
+    --stop-ink: #fff;
+    --accent: #7cc4ff;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+             max(20px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+    max-width: 520px; margin: 0 auto;
+    font-variant-numeric: tabular-nums;
+  }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action: manipulation; }
+  button:disabled { opacity: .35; cursor: default; }
+
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  header h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  .pill {
+    font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    background: var(--surface-2); color: var(--muted); white-space: nowrap;
+  }
+  .pill[data-k="run"]   { background: rgba(61,220,132,.15); color: var(--go); }
+  .pill[data-k="pause"] { background: rgba(245,184,61,.15); color: var(--pause); }
+  .pill[data-k="err"]   { background: rgba(255,92,92,.15); color: var(--stop); }
+  .pill[data-k="ok"]    { background: rgba(124,196,255,.13); color: var(--accent); }
+  header .spacer { flex: 1; }
+  #connectBtn {
+    background: var(--surface-2); padding: 9px 14px; border-radius: 12px; font-weight: 600; font-size: 15px;
+  }
+  #connectBtn.primary { background: var(--accent); color: #04121f; }
+
+  .banner {
+    background: rgba(255,92,92,.1); border: 1px solid rgba(255,92,92,.35); color: #ffc9c9;
+    padding: 12px 14px; border-radius: 14px; margin-bottom: 14px; font-size: 14px;
+  }
+  .banner[hidden] { display: none; }
+
+  .card { background: var(--surface); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+
+  .speed { text-align: center; padding: 18px 16px 16px; }
+  .speed .label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+  .speed .value { font-size: 88px; font-weight: 700; line-height: 1; letter-spacing: -.03em; margin: 6px 0 2px; }
+  .speed .unit { font-size: 20px; color: var(--muted); font-weight: 500; margin-left: 4px; letter-spacing: 0; }
+  .speed .target { min-height: 22px; color: var(--accent); font-size: 15px; font-weight: 500; }
+  .adjust { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .adjust button {
+    background: var(--surface-2); height: 72px; border-radius: 16px; font-size: 38px; font-weight: 500; line-height: 1;
+  }
+  .adjust button:active:not(:disabled) { background: var(--line); }
+
+  .presets { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 4px; margin: 0 0 12px; scrollbar-width: none; }
+  .presets::-webkit-scrollbar { display: none; }
+  .presets button {
+    flex: 1 0 auto; min-width: 58px; background: var(--surface); padding: 12px 10px; border-radius: 12px;
+    font-weight: 600; font-size: 16px;
+  }
+  .presets button.on { background: rgba(124,196,255,.16); color: var(--accent); }
+
+  .controls { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 10px; margin-bottom: 12px; }
+  .controls button { height: 64px; border-radius: 16px; font-weight: 700; font-size: 17px; }
+  #startBtn { background: var(--go); color: var(--go-ink); }
+  #pauseBtn { background: var(--pause); color: var(--pause-ink); }
+  #stopBtn  { background: var(--stop); color: var(--stop-ink); }
+
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat { background: var(--surface); border-radius: 14px; padding: 12px 14px; }
+  .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; }
+  .stat .v { font-size: 26px; font-weight: 650; margin-top: 2px; }
+  .stat .v small { font-size: 14px; color: var(--muted); font-weight: 500; margin-left: 3px; }
+  .stat[hidden] { display: none; }
+
+  details { background: var(--surface); border-radius: 14px; margin-top: 12px; }
+  summary { padding: 14px 16px; cursor: pointer; font-weight: 600; color: var(--muted); list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "›"; float: right; display: inline-block; transition: transform .15s; }
+  details[open] summary::after { transform: rotate(90deg); }
+  .panel { padding: 0 16px 16px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row label { color: var(--text); font-size: 15px; }
+  .row .hint { display: block; color: var(--muted); font-size: 12px; }
+  input, select {
+    font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 10px; width: 9.5em; max-width: 55%;
+  }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  .kv { font-size: 13px; color: var(--muted); margin: 0 0 10px; word-break: break-word; }
+  .kv b { color: var(--text); font-weight: 600; }
+  #log {
+    background: #0a0c0f; border-radius: 10px; padding: 10px; margin: 8px 0; height: 38vh; overflow: auto;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: #b8c2d0; white-space: pre-wrap; word-break: break-all;
+  }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tools button { background: var(--surface-2); padding: 8px 12px; border-radius: 10px; font-size: 14px; font-weight: 600; }
+  .tools input[type=text] { flex: 1; width: auto; max-width: none; font-family: ui-monospace, monospace; font-size: 14px; }
+  .small { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Bieżnia</h1>
+  <span class="pill" id="statusPill">rozłączona</span>
+  <span class="spacer"></span>
+  <button id="connectBtn" class="primary">Połącz</button>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<section class="card speed">
+  <div class="label">Prędkość</div>
+  <div class="value"><span id="speedVal">–</span><span class="unit">km/h</span></div>
+  <div class="target" id="targetLine"></div>
+  <div class="adjust">
+    <button id="minusBtn" aria-label="Wolniej" disabled>−</button>
+    <button id="plusBtn" aria-label="Szybciej" disabled>+</button>
+  </div>
+</section>
+
+<div class="presets" id="presets"></div>
+
+<div class="controls">
+  <button id="startBtn" disabled>Start</button>
+  <button id="pauseBtn" disabled>Pauza</button>
+  <button id="stopBtn" disabled>Stop</button>
+</div>
+
+<section class="stats">
+  <div class="stat"><div class="k">Czas</div><div class="v" id="timeVal">–</div></div>
+  <div class="stat"><div class="k">Dystans</div><div class="v"><span id="distVal">–</span><small>km</small></div></div>
+  <div class="stat" id="stepsBox"><div class="k">Kroki</div><div class="v" id="stepsVal">–</div></div>
+  <div class="stat" id="kcalBox"><div class="k">Kalorie</div><div class="v"><span id="kcalVal">–</span><small>kcal</small></div></div>
+  <div class="stat" id="hrBox" hidden><div class="k">Tętno</div><div class="v"><span id="hrVal">–</span><small>bpm</small></div></div>
+  <div class="stat" id="inclBox" hidden><div class="k">Nachylenie</div><div class="v"><span id="inclVal">–</span><small>%</small></div></div>
+</section>
+
+<details id="settingsBox">
+  <summary>Ustawienia</summary>
+  <div class="panel">
+    <div class="row"><label for="sStep">Krok +/−</label>
+      <select id="sStep"><option value="0.1">0,1 km/h</option><option value="0.2">0,2 km/h</option><option value="0.5">0,5 km/h</option><option value="1">1,0 km/h</option></select></div>
+    <div class="row"><label for="sStart">Prędkość startowa<span class="hint">gdy nie wybrano innej</span></label>
+      <input id="sStart" type="number" inputmode="decimal" step="0.1" min="0.5" max="20"></div>
+    <div class="row"><label for="sPresets">Szybkie prędkości<span class="hint">oddzielone przecinkami, ułamki z kropką: 2, 3, 4.5</span></label>
+      <input id="sPresets" type="text" inputmode="decimal"></div>
+    <div class="row"><label for="sWeight">Waga (kg)<span class="hint">wysyłana do bieżni przy łączeniu</span></label>
+      <input id="sWeight" type="number" inputmode="numeric" min="30" max="200"></div>
+    <div class="row"><label for="sProto">Protokół<span class="hint">zmiana działa przy następnym połączeniu</span></label>
+      <select id="sProto"><option value="auto">automatycznie</option><option value="fitshow">FitShow</option><option value="ftms">FTMS</option></select></div>
+    <div class="row"><label for="sMiles">Bieżnia podaje mile<span class="hint">włącz, jeśli prędkość jest ~1,6× za mała</span></label>
+      <input id="sMiles" type="checkbox"></div>
+  </div>
+</details>
+
+<details id="diagBox">
+  <summary>Diagnostyka</summary>
+  <div class="panel">
+    <p class="kv" id="diagInfo">Brak połączenia.</p>
+    <div class="tools">
+      <label class="small"><input type="checkbox" id="verbose" style="width:16px;height:16px;vertical-align:-3px"> pokaż odpytywanie statusu</label>
+    </div>
+    <div id="log"></div>
+    <div class="tools">
+      <button id="copyLog">Kopiuj log</button>
+      <button id="clearLog">Wyczyść</button>
+      <span class="small" id="copyMsg"></span>
+    </div>
+    <div class="tools" style="margin-top:10px">
+      <input type="text" id="rawHex" placeholder="np. 53 02 1e 00" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button id="rawSend">Wyślij</button>
+    </div>
+    <p class="small">FitShow: podajesz sam ładunek, ramka 02 … XOR 03 dokłada się sama. FTMS: bajty idą wprost do Control Point (0x2AD9).</p>
+  </div>
+</details>
+
+<script>
+'use strict';
+
+/* ---------- helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const uuid16 = (n) => `0000${n.toString(16).padStart(4, '0')}-0000-1000-8000-00805f9b34fb`;
+const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join(' ');
+const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const round1 = (v) => Math.round(v * 10) / 10;
+const dvBytes = (dv) => new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+const buzz = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (_) {} };
+const MILE = 1.60934;
+
+/* ---------- settings (per-browser convenience only) ---------- */
+const DEFAULTS = { step: 0.5, startSpeed: 2.0, presets: '2,3,4,5,6', weight: 75, protocol: 'auto', miles: false };
+const settings = (() => {
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('bieznia.settings') || '{}') }; }
+  catch (_) { return { ...DEFAULTS }; }
+})();
+function saveSettings() { try { localStorage.setItem('bieznia.settings', JSON.stringify(settings)); } catch (_) {} }
+
+/* ---------- log ---------- */
+const logLines = [];
+let verbose = false;
+function log(msg) {
+  const line = `${new Date().toTimeString().slice(0, 8)}  ${msg}`;
+  logLines.push(line);
+  if (logLines.length > 500) logLines.shift();
+  const el = $('#log');
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  const div = document.createElement('div');
+  div.textContent = line;
+  el.appendChild(div);
+  while (el.childElementCount > 500) el.firstChild.remove();
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- GATT serialisation: Web Bluetooth rejects overlapping operations ---------- */
+let gattChain = Promise.resolve();
+function gatt(fn) {
+  const p = gattChain.catch(() => {}).then(fn);
+  gattChain = p;
+  return p;
+}
+function writeChar(ch, bytes) {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return gatt(() => {
+    if (ch.properties.writeWithoutResponse && ch.writeValueWithoutResponse) return ch.writeValueWithoutResponse(data);
+    if (ch.writeValueWithResponse) return ch.writeValueWithResponse(data);
+    return ch.writeValue(data);
+  });
+}
+
+/* ---------- common treadmill state ----------
+   status codes follow FitShow: 0 ready, 1 end, 2 countdown, 3 running, 4 stopping,
+   5 error, 6 safety key, 7 calibration, 10 paused                                     */
+class Treadmill {
+  constructor() {
+    this.s = { status: 0, running: false, speed: 0, incline: 0, seconds: null, distance: 0, machineDistance: null,
+               kcal: null, steps: null, hr: 0, countdown: null, error: null };
+    this.min = 0.5; this.max = 6.0; this.maxIncline = 0;
+    this.target = null;        // speed waiting to be sent (sent once belt is running)
+    this.wanted = null;        // last user request, for the "cel" line
+    this.lastRunSpeed = null;
+    this.lastTs = null;
+    this.timer = null;
+    this.localStart = null;
+  }
+  setTarget(v) {
+    v = round1(clamp(v, this.min, this.max));
+    this.target = v;
+    this.wanted = { v, at: Date.now() };
+    render();
+  }
+  integrate(kmh) {
+    const now = performance.now();
+    if (this.lastTs != null && this.s.running) {
+      const dtH = (now - this.lastTs) / 3.6e6;
+      if (dtH > 0 && dtH < 5 / 3600) this.s.distance += kmh * dtH;   // ignore gaps > 5 s
+    }
+    this.lastTs = now;
+  }
+  resetWorkout() {
+    Object.assign(this.s, { distance: 0, machineDistance: null, seconds: null, kcal: null, steps: null });
+    this.localStart = Date.now();
+  }
+  wantedStart() { return this.lastRunSpeed || Number(settings.startSpeed) || 2; }
+  close() { clearInterval(this.timer); this.timer = null; }
+}
+
+/* ---------- FitShow (service FFF0 / FFE0 / AE00) ----------
+   frame: 02 | payload… | XOR(payload) | 03 ; poll 0x51 every 250 ms.
+   Protocol constants follow the open-source QZ (qdomyos-zwift) implementation. */
+const FS = {
+  SERVICES: [uuid16(0xfff0), uuid16(0xffe0), uuid16(0xae00)],
+  WRITE: [uuid16(0xfff2), uuid16(0xffe1), uuid16(0xae01)],
+  NOTIFY: [uuid16(0xfff1), uuid16(0xffe4), uuid16(0xae02)],
+  INFO: 0x50, STATUS: 0x51, DATA: 0x52, CONTROL: 0x53,
+  C_USER: 0x00, C_START: 0x01, C_TARGET: 0x02, C_STOP: 0x03, C_PAUSE: 0x06,
+};
+const FS_DATA_STATUSES = [1, 3, 4, 10];
+
+class FitShow extends Treadmill {
+  constructor() { super(); this.name = 'FitShow'; this.queue = []; this.rx = []; this.busy = false; this.lastStatusHex = ''; }
+
+  get uf() { return settings.miles ? MILE : 1; }   // device unit → km/h
+
+  async init(service) {
+    for (const c of await service.getCharacteristics()) {
+      if (FS.WRITE.includes(c.uuid)) this.wr = c;
+      if (FS.NOTIFY.includes(c.uuid)) this.nt = c;
+    }
+    if (!this.wr || !this.nt) throw new Error('Brak charakterystyk FitShow (zapis / notyfikacje).');
+    this.nt.addEventListener('characteristicvaluechanged', (e) => this.onBytes(dvBytes(e.target.value)));
+    await gatt(() => this.nt.startNotifications());
+
+    const d = new Date();
+    const w = clamp(Math.round(Number(settings.weight) || 75), 30, 250);
+    this.enqueue([FS.CONTROL, FS.C_USER, 0, 0, 110, 30, w], 'dane użytkownika');
+    this.enqueue([FS.INFO, 0x00, d.getFullYear() - 2000, d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()], 'model + data');
+    for (const p of [2, 3, 4, 1]) this.enqueue([FS.INFO, p], `info ${p}`);
+    this.timer = setInterval(() => this.tick(), 250);
+  }
+
+  frame(payload) {
+    let x = 0;
+    for (const b of payload) x ^= b;
+    return new Uint8Array([0x02, ...payload, x, 0x03]);
+  }
+
+  enqueue(payload, label, flags = {}, front = false) {
+    const q = { payload, label, tries: 0, ...flags };
+    front ? this.queue.unshift(q) : this.queue.push(q);
+  }
+
+  dropTargets() { this.queue = this.queue.filter((q) => !q.target && !q.ctl); }
+
+  targetPayload(kmh) {
+    const raw = clamp(Math.round((kmh / this.uf) * 10), 0, 255);
+    return [FS.CONTROL, FS.C_TARGET, raw, clamp(Math.round(this.s.incline), 0, 255)];
+  }
+
+  tick() {
+    if (this.busy) return;
+    // speed commands are acknowledged but ignored during the start countdown: send only when RUNNING
+    if (this.target != null && this.s.status === 3 && !this.queue.some((q) => q.target)) {
+      const v = this.target;
+      this.target = null;
+      if (Math.abs(v - this.s.speed) >= 0.05) this.enqueue(this.targetPayload(v), `prędkość ${fmt1(v)} km/h`, { target: true });
+    }
+    if (this.queue.length) {
+      const q = this.queue[0];
+      q.tries++;
+      if (q.tries > 6) { log(`⚠ brak odpowiedzi: ${q.label}`); this.queue.shift(); return; }
+      if (q.tries % 2 === 0) return;                    // give the device a tick to answer
+      this.send(q.payload, q.tries > 1 ? `${q.label} (ponownie)` : q.label);
+    } else {
+      this.send([FS.STATUS], null);
+    }
+  }
+
+  async send(payload, label) {
+    const f = this.frame(payload);
+    if (label) log(`→ ${hex(f)}   ${label}`);
+    else if (verbose) log(`→ ${hex(f)}`);
+    this.busy = true;
+    try { await writeChar(this.wr, f); }
+    catch (e) { log(`✗ zapis: ${e.message}`); }
+    finally { this.busy = false; }
+  }
+
+  sendRaw(bytes) { this.enqueue(bytes, 'ręcznie'); }
+
+  onBytes(bytes) {
+    for (const b of bytes) this.rx.push(b);
+    for (;;) {
+      const s = this.rx.indexOf(0x02);
+      if (s < 0) { this.rx.length = 0; return; }
+      if (s > 0) this.rx.splice(0, s);
+      let end = -1;
+      for (let i = 3; i < this.rx.length; i++) {
+        if (this.rx[i] !== 0x03) continue;
+        let x = 0;
+        for (let j = 1; j < i - 1; j++) x ^= this.rx[j];
+        if (x === this.rx[i - 1]) { end = i; break; }
+      }
+      if (end < 0) {
+        if (this.rx.length > 48) { this.rx.shift(); continue; }   // garbage 0x02 — resync
+        return;
+      }
+      this.onFrame(this.rx.splice(0, end + 1));
+    }
+  }
+
+  onFrame(fr) {
+    const a = fr.slice(1, fr.length - 2);       // payload: a[0] = cmd, a[1] = parameter
+    const cmd = a[0], par = a[1];
+    const h = hex(fr);
+    if (cmd === FS.STATUS) {
+      if (verbose || h !== this.lastStatusHex) log(`← ${h}`);
+      this.lastStatusHex = h;
+    } else {
+      log(`← ${h}`);
+    }
+
+    const head = this.queue[0];
+    if (cmd !== FS.STATUS && head && head.payload[0] === cmd && head.payload[1] === par) this.queue.shift();
+
+    if (cmd === FS.INFO) this.onInfo(par, fr);
+    else if (cmd === FS.STATUS) this.onStatus(par, a, fr.length);
+    render();
+  }
+
+  onInfo(par, fr) {
+    if (par === 2 && fr.length > 6) {
+      this.setLimits(fr[3], fr[4]);
+    } else if (par === 5 && fr.length >= 9) {
+      this.setLimits(fr[3], fr[4]);
+      this.maxIncline = fr[5];
+    } else if (par === 3) {
+      this.maxIncline = fr.length < 7 ? 0 : fr[3];
+      log(this.maxIncline ? `nachylenie do ${this.maxIncline}` : 'bez regulacji nachylenia');
+    } else if (par === 0 && fr.length > 7) {
+      log(`model: ${fr[3].toString(16).padStart(2, '0')}-${((fr[5] << 8) | fr[4]).toString(16).padStart(4, '0')}`);
+    }
+  }
+
+  setLimits(maxRaw, minRaw) {
+    if (!maxRaw) return;
+    this.max = round1((maxRaw / 10) * this.uf);
+    this.min = round1(Math.max(minRaw, 1) / 10 * this.uf);
+    log(`zakres prędkości: ${fmt1(this.min)}–${fmt1(this.max)} km/h`);
+    renderPresets();
+  }
+
+  onStatus(st, a, frameLen) {
+    const prev = this.s.status;
+    this.s.status = st;
+    this.s.countdown = st === 2 && a.length > 2 ? a[2] : null;
+    if (FS_DATA_STATUSES.includes(st) && frameLen >= 16) {
+      const running = st === 3;
+      const speed = running ? (a[2] / 10) * this.uf : 0;
+      this.integrate(speed);
+      this.s.running = running;
+      this.s.speed = speed;
+      this.s.incline = this.maxIncline ? ((a[3] << 24) >> 24) : 0;
+      this.s.seconds = a[4] | (a[5] << 8);
+      this.s.kcal = a[8] | (a[9] << 8);
+      this.s.steps = a[10] | (a[11] << 8);
+      this.s.hr = a[12];
+      if (running && speed > 0) this.lastRunSpeed = round1(speed);
+    } else if (FS_DATA_STATUSES.includes(st)) {
+      this.s.running = st === 3;
+    } else {
+      this.s.running = false;
+      this.s.speed = 0;
+      this.lastTs = null;
+      this.s.error = st === 5 && a.length > 2 ? a[2] : st === 6 ? 'klucz' : null;
+      if (st >= 5 && st <= 6) this.target = null;
+    }
+    if (prev !== st) log(`status: ${statusName(this)}`);
+  }
+
+  start() {
+    if (this.s.status === 3) return;
+    if (this.target == null) this.target = round1(clamp(this.wantedStart(), this.min, this.max));
+    if (this.s.status !== 10) this.resetWorkout();
+    this.dropTargets();
+    this.enqueue([FS.CONTROL, FS.C_START, 0, 0, 0, 0, 0, 0, 0, 0], 'start', { ctl: true });
+  }
+  pause() { this.target = null; this.dropTargets(); this.enqueue([FS.CONTROL, FS.C_PAUSE], 'pauza', { ctl: true }, true); }
+  stop()  { this.target = null; this.dropTargets(); this.enqueue([FS.CONTROL, FS.C_STOP], 'stop', { ctl: true }, true); }
+}
+
+/* ---------- FTMS (Fitness Machine Service 0x1826) ---------- */
+const CP_RESULT = { 1: 'OK', 2: 'nieobsługiwane', 3: 'zły parametr', 4: 'błąd', 5: 'brak kontroli' };
+
+class Ftms extends Treadmill {
+  constructor() { super(); this.name = 'FTMS'; this.paused = false; }
+
+  async init(service) {
+    this.data = await service.getCharacteristic(0x2acd);
+    this.cp = await service.getCharacteristic(0x2ad9);
+    try { this.fms = await service.getCharacteristic(0x2ada); } catch (_) { this.fms = null; }
+    try {
+      const c = await service.getCharacteristic(0x2ad4);
+      const r = await gatt(() => c.readValue());
+      const mn = r.getUint16(0, true) / 100, mx = r.getUint16(2, true) / 100;
+      if (mx > 0) { this.min = Math.max(0.5, round1(mn)); this.max = round1(mx); log(`zakres prędkości: ${fmt1(this.min)}–${fmt1(this.max)} km/h`); renderPresets(); }
+    } catch (_) { log('brak zakresu prędkości (0x2AD4) — używam 0,5–6,0'); }
+
+    this.data.addEventListener('characteristicvaluechanged', (e) => this.onData(e.target.value));
+    this.cp.addEventListener('characteristicvaluechanged', (e) => this.onCp(dvBytes(e.target.value)));
+    await gatt(() => this.data.startNotifications());
+    await gatt(() => this.cp.startNotifications());
+    if (this.fms) {
+      this.fms.addEventListener('characteristicvaluechanged', (e) => this.onMachineStatus(dvBytes(e.target.value)));
+      await gatt(() => this.fms.startNotifications());
+    }
+    await this.cpWrite([0x00], 'przejęcie kontroli');
+    this.timer = setInterval(() => this.tick(), 400);
+  }
+
+  cpWrite(bytes, label) {
+    log(`→ ${hex(bytes)}   ${label}`);
+    return gatt(() => this.cp.writeValueWithResponse(new Uint8Array(bytes))).catch((e) => log(`✗ ${label}: ${e.message}`));
+  }
+  sendRaw(bytes) { this.cpWrite(bytes, 'ręcznie'); }
+
+  onCp(b) {
+    if (b[0] === 0x80) {
+      log(`← ${hex(b)}   odpowiedź na 0x${b[1].toString(16).padStart(2, '0')}: ${CP_RESULT[b[2]] || b[2]}`);
+      if (b[2] === 5) this.cpWrite([0x00], 'ponowne przejęcie kontroli');
+    } else log(`← CP ${hex(b)}`);
+  }
+
+  onMachineStatus(b) {
+    log(`← status maszyny ${hex(b)}`);
+    if (b[0] === 0x02) this.paused = b[1] === 0x02;
+    if (b[0] === 0x04) this.paused = false;
+    render();
+  }
+
+  onData(dv) {
+    const h = hex(dvBytes(dv));
+    if (verbose) log(`← ${h}`);
+    try {
+      let o = 0;
+      const f = dv.getUint16(o, true); o += 2;
+      let speed = null;
+      if (!(f & 0x0001)) { speed = dv.getUint16(o, true) / 100; o += 2; }
+      if (f & 0x0002) o += 2;
+      if (f & 0x0004) { this.s.machineDistance = (dv.getUint16(o, true) | (dv.getUint8(o + 2) << 16)) / 1000; o += 3; }
+      if (f & 0x0008) { this.s.incline = dv.getInt16(o, true) / 10; o += 4; }
+      if (f & 0x0010) o += 4;
+      if (f & 0x0020) o += 1;
+      if (f & 0x0040) o += 1;
+      if (f & 0x0080) { this.s.kcal = dv.getUint16(o, true); o += 5; }
+      if (f & 0x0100) { this.s.hr = dv.getUint8(o); o += 1; }
+      if (f & 0x0200) o += 1;
+      if (f & 0x0400) { this.s.seconds = dv.getUint16(o, true); o += 2; }
+      if (speed != null) {
+        const running = speed > 0;
+        this.integrate(speed);
+        if (running && !this.s.running) this.paused = false;
+        this.s.running = running;
+        this.s.speed = speed;
+        if (running) this.lastRunSpeed = round1(speed);
+        this.s.status = running ? 3 : this.paused ? 10 : 0;
+        if (!running) this.lastTs = null;
+      }
+    } catch (e) { log(`✗ dane FTMS: ${e.message}`); }
+    render();
+  }
+
+  tick() {
+    if (this.target != null && this.s.running) {
+      const v = this.target;
+      this.target = null;
+      if (Math.abs(v - this.s.speed) >= 0.05) {
+        const r = Math.round(v * 100);
+        this.cpWrite([0x02, r & 0xff, r >> 8], `prędkość ${fmt1(v)} km/h`);
+      }
+    }
+  }
+
+  start() {
+    if (this.s.running) return;
+    if (this.target == null) this.target = round1(clamp(this.wantedStart(), this.min, this.max));
+    if (!this.paused) this.resetWorkout();
+    this.cpWrite([0x07], 'start');
+  }
+  pause() { this.target = null; this.cpWrite([0x08, 0x02], 'pauza'); }
+  stop()  { this.target = null; this.cpWrite([0x08, 0x01], 'stop'); }
+}
+
+/* ---------- connection ---------- */
+let device = null, tm = null, userDisconnect = false, connecting = false, reconnecting = false, wakeLock = null;
+
+function statusName(t) {
+  if (!t) return connecting ? 'łączenie…' : 'rozłączona';
+  switch (t.s.status) {
+    case 0: return 'gotowa';
+    case 1: return 'koniec';
+    case 2: return t.s.countdown != null ? `start za ${t.s.countdown}` : 'odliczanie';
+    case 3: return 'w ruchu';
+    case 4: return 'zatrzymywanie';
+    case 5: return `błąd${t.s.error != null ? ' ' + t.s.error : ''}`;
+    case 6: return 'wyjęty klucz';
+    case 7: return 'kalibracja';
+    case 10: return 'pauza';
+    default: return `status ${t.s.status}`;
+  }
+}
+
+const NO_BT_MSG = () => window.isSecureContext
+  ? 'Ta przeglądarka nie udostępnia Web Bluetooth. Użyj Chrome na Androidzie. W Brave trzeba włączyć brave://flags → „Web Bluetooth API” i zrestartować przeglądarkę.'
+  : 'Web Bluetooth działa tylko na stronie otwartej przez https:// (plik otwarty z pamięci telefonu się nie nadaje). Wrzuć plik np. na GitHub Pages i otwórz go w Chrome.';
+
+async function connect() {
+  if (!navigator.bluetooth) { showBanner(NO_BT_MSG()); window.scrollTo(0, 0); return; }
+  hideBanner();
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [...FS.SERVICES, uuid16(0x1826), uuid16(0x1814), uuid16(0x180a)],
+    });
+  } catch (e) {
+    const cancelled = e.name === 'NotFoundError' && /cancel/i.test(e.message);
+    log(`requestDevice: ${e.name}: ${e.message}`);
+    if (!cancelled) {
+      const hint = /globally disabled|blocked/i.test(e.message)
+        ? ' — Bluetooth jest zablokowany w przeglądarce. W Brave: brave://flags → „Web Bluetooth API” → Enabled, restart. Najprościej użyć Chrome.'
+        : /adapter|not available/i.test(e.message) ? ' — włącz Bluetooth (i lokalizację) w telefonie.' : '';
+      showBanner(`Nie udało się połączyć: ${e.message}${hint}`);
+      window.scrollTo(0, 0);
+    }
+    return;
+  }
+  device.addEventListener('gattserverdisconnected', onDisconnected);
+  userDisconnect = false;
+  await openSession();
+}
+
+async function openSession() {
+  connecting = true; render();
+  try {
+    log(`łączenie z „${device.name || 'bez nazwy'}”…`);
+    const server = await device.gatt.connect();
+    const services = await server.getPrimaryServices();
+    const uuids = services.map((s) => s.uuid);
+    log(`usługi: ${uuids.map(shortUuid).join(', ') || '(brak)'}`);
+
+    const fsSvc = services.find((s) => FS.SERVICES.includes(s.uuid));
+    const ftSvc = services.find((s) => s.uuid === uuid16(0x1826));
+    let proto = settings.protocol;
+    if (proto === 'auto') proto = fsSvc ? 'fitshow' : ftSvc ? 'ftms' : null;
+    if (proto === 'fitshow' && !fsSvc) throw new Error('Wybrano FitShow, ale bieżnia nie ma tej usługi.');
+    if (proto === 'ftms' && !ftSvc) throw new Error('Wybrano FTMS, ale bieżnia nie ma tej usługi.');
+    if (!proto) throw new Error('Nie znaleziono usługi FitShow ani FTMS. Lista usług jest w Diagnostyce.');
+
+    const t = proto === 'fitshow' ? new FitShow() : new Ftms();
+    await t.init(proto === 'fitshow' ? fsSvc : ftSvc);
+    tm = t;
+    log(`połączono — protokół ${t.name}`);
+    $('#diagInfo').innerHTML = '';
+    $('#diagInfo').append(
+      kv('Urządzenie', device.name || '(bez nazwy)'), document.createElement('br'),
+      kv('Protokół', t.name + (fsSvc && ftSvc ? ' (ma też drugi)' : '')), document.createElement('br'),
+      kv('Usługi', uuids.map(shortUuid).join(', ')));
+    hideBanner();
+    requestWakeLock();
+  } catch (e) {
+    log(`✗ ${e.message}`);
+    showBanner(e.message);
+    try { device.gatt.disconnect(); } catch (_) {}
+  } finally {
+    connecting = false;
+    renderPresets();
+    render();
+  }
+}
+
+function kv(k, v) {
+  const span = document.createElement('span');
+  const b = document.createElement('b');
+  b.textContent = `${k}: `;
+  span.append(b, v);
+  return span;
+}
+function shortUuid(u) { return /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.test(u) ? '0x' + u.slice(4, 8).toUpperCase() : u; }
+
+async function onDisconnected() {
+  if (tm) tm.close();
+  tm = null;
+  log('rozłączono');
+  render();
+  if (userDisconnect || !device || reconnecting || connecting) return;
+  reconnecting = true;
+  try {
+    for (let i = 1; i <= 3 && !tm && !userDisconnect; i++) {
+      await new Promise((r) => setTimeout(r, 1500 * i));
+      if (userDisconnect || tm) return;
+      log(`ponowne łączenie (${i}/3)…`);
+      await openSession();
+    }
+  } finally { reconnecting = false; }
+  if (!tm && !userDisconnect) showBanner('Połączenie zerwane. Bieżnia działa dalej według ostatniej komendy — w razie czego zatrzymaj ją pilotem lub przyciskiem.');
+}
+
+function disconnect() {
+  userDisconnect = true;
+  if (device && device.gatt.connected) device.gatt.disconnect();
+}
+
+async function requestWakeLock() {
+  try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } }
+  catch (_) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && tm) requestWakeLock(); });
+
+/* ---------- UI ---------- */
+function showBanner(msg) { const b = $('#banner'); b.textContent = msg; b.hidden = false; }
+function hideBanner() { $('#banner').hidden = true; }
+
+function pendingSpeed() {
+  if (!tm) return null;
+  if (tm.target != null) return tm.target;
+  const w = tm.wanted;
+  if (w && Date.now() - w.at < 8000 && Math.abs(w.v - tm.s.speed) >= 0.05) return w.v;
+  return null;
+}
+
+function bump(dir) {
+  if (!tm) return;
+  buzz();
+  const base = pendingSpeed() ?? (tm.s.running ? tm.s.speed : tm.wantedStart());
+  const step = Number(settings.step) || 0.5;
+  // snap to the step grid so 2,3 + 0,5 → 2,5 rather than 2,8
+  const next = dir > 0 ? Math.floor(round1(base / step) + 1e-9) * step + step : Math.ceil(round1(base / step) - 1e-9) * step - step;
+  tm.setTarget(next);
+}
+
+function renderPresets() {
+  const box = $('#presets');
+  box.innerHTML = '';
+  const list = String(settings.presets).split(/[,;\s]+/).map(Number).filter((x) => x > 0 && isFinite(x));
+  for (const v of list) {
+    const b = document.createElement('button');
+    b.textContent = fmt1(v);
+    b.dataset.v = v;
+    b.disabled = !tm;
+    b.addEventListener('click', () => { if (tm) { buzz(); tm.setTarget(v); } });
+    box.appendChild(b);
+  }
+}
+
+let renderQueued = false;
+function render() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; renderNow(); });
+}
+function renderNow() {
+  const on = !!tm;
+  const pill = $('#statusPill');
+  pill.textContent = statusName(tm);
+  pill.dataset.k = !on ? '' : tm.s.status === 3 ? 'run' : tm.s.status === 10 ? 'pause' : (tm.s.status === 5 || tm.s.status === 6) ? 'err' : 'ok';
+
+  const cb = $('#connectBtn');
+  cb.textContent = on ? 'Rozłącz' : connecting ? 'Łączenie…' : device ? 'Połącz ponownie' : 'Połącz';
+  cb.classList.toggle('primary', !on);
+  cb.disabled = connecting;
+
+  $('#speedVal').textContent = on ? fmt1(tm.s.speed) : '–';
+  const p = pendingSpeed();
+  const t = $('#targetLine');
+  if (on && p != null) t.textContent = tm.s.running ? `→ ${fmt1(p)} km/h` : `start z ${fmt1(p)} km/h`;
+  else if (on && !tm.s.running && tm.s.status !== 2) t.textContent = `start z ${fmt1(clamp(tm.wantedStart(), tm.min, tm.max))} km/h`;
+  else t.textContent = '';
+
+  for (const id of ['#minusBtn', '#plusBtn', '#startBtn', '#pauseBtn', '#stopBtn']) $(id).disabled = !on;
+  if (on) {
+    $('#startBtn').textContent = tm.s.status === 10 ? 'Wznów' : 'Start';
+    $('#startBtn').disabled = tm.s.status === 3 || tm.s.status === 2;
+    $('#pauseBtn').disabled = tm.s.status !== 3;
+  }
+  const cur = p ?? (on ? round1(tm.s.speed) : null);
+  for (const b of $('#presets').children) {
+    b.disabled = !on;
+    b.classList.toggle('on', cur != null && Math.abs(Number(b.dataset.v) - cur) < 0.05);
+  }
+
+  const s = on ? tm.s : null;
+  let secs = s && s.seconds != null ? s.seconds : null;
+  $('#timeVal').textContent = secs == null ? '–' : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  const dist = s ? (s.machineDistance ?? s.distance) : null;
+  $('#distVal').textContent = dist == null ? '–' : dist.toFixed(2).replace('.', ',');
+  $('#stepsVal').textContent = s && s.steps != null ? s.steps.toLocaleString('pl-PL') : '–';
+  $('#kcalVal').textContent = s && s.kcal != null ? s.kcal : '–';
+  $('#stepsBox').hidden = on && tm.name === 'FTMS';
+  $('#hrBox').hidden = !(s && s.hr > 0);
+  $('#hrVal').textContent = s ? s.hr : '–';
+  $('#inclBox').hidden = !(on && tm.maxIncline > 0);
+  $('#inclVal').textContent = s ? fmt1(s.incline) : '–';
+}
+
+/* ---------- wiring ---------- */
+$('#connectBtn').addEventListener('click', () => {
+  if (tm) return disconnect();
+  if (device && !device.gatt.connected) { userDisconnect = false; return openSession(); }
+  connect();
+});
+$('#minusBtn').addEventListener('click', () => bump(-1));
+$('#plusBtn').addEventListener('click', () => bump(+1));
+$('#startBtn').addEventListener('click', () => { if (tm) { buzz(); tm.start(); render(); } });
+$('#pauseBtn').addEventListener('click', () => { if (tm) { buzz(); tm.pause(); render(); } });
+$('#stopBtn').addEventListener('click', () => { if (tm) { buzz(); tm.stop(); render(); } });
+document.addEventListener('keydown', (e) => {
+  if (!tm || e.target.matches('input, select')) return;
+  if (e.key === 'ArrowUp') { e.preventDefault(); bump(+1); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); bump(-1); }
+});
+
+$('#verbose').addEventListener('change', (e) => { verbose = e.target.checked; });
+$('#copyLog').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(logLines.join('\n')); $('#copyMsg').textContent = 'skopiowano'; }
+  catch (_) { $('#copyMsg').textContent = 'nie udało się — zaznacz log ręcznie'; }
+  setTimeout(() => { $('#copyMsg').textContent = ''; }, 2500);
+});
+$('#clearLog').addEventListener('click', () => { logLines.length = 0; $('#log').innerHTML = ''; });
+$('#rawSend').addEventListener('click', () => {
+  const bytes = $('#rawHex').value.trim().split(/[\s,:]+/).filter(Boolean).map((x) => parseInt(x.replace(/^0x/i, ''), 16));
+  if (!tm) return log('✗ najpierw połącz się z bieżnią');
+  if (!bytes.length || bytes.some((b) => !(b >= 0 && b <= 255))) return log('✗ niepoprawne bajty hex');
+  tm.sendRaw(bytes);
+});
+
+function bindSetting(id, key, parse = (v) => v, prop = 'value') {
+  const el = $(id);
+  el[prop] = settings[key];
+  el.addEventListener('change', () => { settings[key] = parse(el[prop]); saveSettings(); renderPresets(); render(); });
+}
+bindSetting('#sStep', 'step', Number);
+bindSetting('#sStart', 'startSpeed', (v) => Number(String(v).replace(',', '.')) || DEFAULTS.startSpeed);
+bindSetting('#sPresets', 'presets');
+bindSetting('#sWeight', 'weight', (v) => Number(v) || DEFAULTS.weight);
+bindSetting('#sProto', 'protocol');
+bindSetting('#sMiles', 'miles', Boolean, 'checked');
+
+if (!navigator.bluetooth) showBanner(NO_BT_MSG());
+renderPresets();
+render();
+setInterval(render, 1000);   // keep the "cel" line and time fresh
+</script>
+</body>
+</html>

@@ -169,6 +169,8 @@
       <input id="sWeight" type="number" inputmode="numeric" min="30" max="200"></div>
     <div class="row"><label for="sProto">Protokół<span class="hint">zmiana działa przy następnym połączeniu</span></label>
       <select id="sProto"><option value="auto">automatycznie</option><option value="fitshow">FitShow</option><option value="ftms">FTMS</option></select></div>
+    <div class="row"><label for="sPause">Pauza<span class="hint">auto sprawdza 0x06, potem 0x0A, a jak nic nie działa — stop + wznowienie</span></label>
+      <select id="sPause"><option value="0">automatycznie</option><option value="6">komenda 0x06</option><option value="10">komenda 0x0A</option><option value="-1">stop + wznowienie</option></select></div>
     <div class="row"><label for="sMiles">Bieżnia podaje mile<span class="hint">włącz, jeśli prędkość jest ~1,6× za mała</span></label>
       <input id="sMiles" type="checkbox"></div>
   </div>
@@ -210,7 +212,7 @@ const buzz = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (
 const MILE = 1.60934;
 
 /* ---------- settings (per-browser convenience only) ---------- */
-const DEFAULTS = { step: 0.5, startSpeed: 2.0, presets: '2,3,4,5,6', weight: 75, protocol: 'auto', miles: false };
+const DEFAULTS = { step: 0.5, startSpeed: 2.0, presets: '2,3,4,5,6', weight: 75, protocol: 'auto', miles: false, pauseCmd: 0 };
 const settings = (() => {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('bieznia.settings') || '{}') }; }
   catch (_) { return { ...DEFAULTS }; }
@@ -283,6 +285,7 @@ class Treadmill {
     this.localStart = Date.now();
   }
   wantedStart() { return this.lastRunSpeed || Number(settings.startSpeed) || 2; }
+  get pausedLike() { return this.s.status === 10; }
   close() { clearInterval(this.timer); this.timer = null; }
 }
 
@@ -299,7 +302,22 @@ const FS = {
 const FS_DATA_STATUSES = [1, 3, 4, 10];
 
 class FitShow extends Treadmill {
-  constructor() { super(); this.name = 'FitShow'; this.queue = []; this.rx = []; this.busy = false; this.lastStatusHex = ''; }
+  constructor() {
+    super();
+    this.name = 'FitShow'; this.queue = []; this.rx = []; this.busy = false; this.lastStatusHex = '';
+    this.pauseTry = null;      // auto-detection of the pause command
+    this.softPaused = null;    // pause emulated as stop + resume
+    this.off = { seconds: 0, steps: 0, kcal: 0 };   // counters carried over a soft pause
+    this.lastRaw = { seconds: 0, steps: 0, kcal: 0 };
+    this.carry = null;
+  }
+
+  resetWorkout() {
+    super.resetWorkout();
+    this.off = { seconds: 0, steps: 0, kcal: 0 };
+    this.lastRaw = { seconds: 0, steps: 0, kcal: 0 };
+    this.carry = null;
+  }
 
   get uf() { return settings.miles ? MILE : 1; }   // device unit → km/h
 
@@ -340,6 +358,7 @@ class FitShow extends Treadmill {
 
   tick() {
     if (this.busy) return;
+    this.checkPause();
     // speed commands are acknowledged but ignored during the start countdown: send only when RUNNING
     if (this.target != null && this.s.status === 3 && !this.queue.some((q) => q.target)) {
       const v = this.target;
@@ -442,9 +461,16 @@ class FitShow extends Treadmill {
       this.s.running = running;
       this.s.speed = speed;
       this.s.incline = this.maxIncline ? ((a[3] << 24) >> 24) : 0;
-      this.s.seconds = a[4] | (a[5] << 8);
-      this.s.kcal = a[8] | (a[9] << 8);
-      this.s.steps = a[10] | (a[11] << 8);
+      const raw = { seconds: a[4] | (a[5] << 8), kcal: a[8] | (a[9] << 8), steps: a[10] | (a[11] << 8) };
+      if (this.carry && running) {
+        // after a soft pause: if the treadmill restarted its counters, add what was done before the pause
+        if (raw.seconds < this.carry.seconds) for (const k in this.off) this.off[k] += this.carry[k];
+        this.carry = null;
+      }
+      this.lastRaw = raw;
+      this.s.seconds = raw.seconds + this.off.seconds;
+      this.s.kcal = raw.kcal + this.off.kcal;
+      this.s.steps = raw.steps + this.off.steps;
       this.s.hr = a[12];
       if (running && speed > 0) this.lastRunSpeed = round1(speed);
     } else if (FS_DATA_STATUSES.includes(st)) {
@@ -461,13 +487,75 @@ class FitShow extends Treadmill {
 
   start() {
     if (this.s.status === 3) return;
-    if (this.target == null) this.target = round1(clamp(this.wantedStart(), this.min, this.max));
-    if (this.s.status !== 10) this.resetWorkout();
+    this.pauseTry = null;
+    const resuming = this.pausedLike;
+    if (this.softPaused) {
+      this.target = round1(clamp(this.softPaused.speed || this.wantedStart(), this.min, this.max));
+      this.carry = { ...this.lastRaw };
+      this.softPaused = null;
+    } else {
+      if (this.target == null) this.target = round1(clamp(this.wantedStart(), this.min, this.max));
+      if (this.s.status !== 10) this.resetWorkout();
+    }
     this.dropTargets();
-    this.enqueue([FS.CONTROL, FS.C_START, 0, 0, 0, 0, 0, 0, 0, 0], 'start', { ctl: true });
+    this.enqueue([FS.CONTROL, FS.C_START, 0, 0, 0, 0, 0, 0, 0, 0], resuming ? 'wznowienie' : 'start', { ctl: true });
   }
-  pause() { this.target = null; this.dropTargets(); this.enqueue([FS.CONTROL, FS.C_PAUSE], 'pauza', { ctl: true }, true); }
-  stop()  { this.target = null; this.dropTargets(); this.enqueue([FS.CONTROL, FS.C_STOP], 'stop', { ctl: true }, true); }
+
+  pause() {
+    if (this.s.status !== 3) return;
+    this.target = null;
+    this.dropTargets();
+    this.pauseSpeed = round1(this.s.speed) || this.lastRunSpeed;
+    const mode = Number(settings.pauseCmd) || 0;
+    if (mode === -1) return this.softPause();
+    this.pauseTry = { variants: mode > 0 ? [mode] : [FS.C_PAUSE, 0x0a], i: 0, at: 0 };
+    this.sendPauseTry();
+  }
+
+  sendPauseTry() {
+    const v = this.pauseTry.variants[this.pauseTry.i];
+    this.pauseTry.at = Date.now();
+    this.enqueue([FS.CONTROL, v], `pauza (0x${v.toString(16).padStart(2, '0')})`, { ctl: true }, true);
+  }
+
+  // called every tick while a pause attempt is pending
+  checkPause() {
+    const pt = this.pauseTry;
+    if (!pt) return;
+    const v = pt.variants[pt.i];
+    if (this.s.status === 10) {
+      log(`pauza działa z komendą 0x${v.toString(16).padStart(2, '0')}`);
+      if (Number(settings.pauseCmd) !== v) { settings.pauseCmd = v; saveSettings(); syncSettingsUi(); }
+      this.pauseTry = null;
+      return;
+    }
+    if (this.s.status !== 3 && this.s.status !== 2) {
+      // treadmill stopped instead of pausing — treat it as a pause so "Wznów" restores speed and counters
+      log(`po komendzie pauzy bieżnia przeszła w status ${this.s.status} — traktuję to jako pauzę`);
+      this.pauseTry = null;
+      if ([0, 1, 4].includes(this.s.status)) this.softPaused = { speed: this.pauseSpeed || this.lastRunSpeed };
+      return;
+    }
+    if (Date.now() - pt.at < 3000) return;
+    if (++pt.i < pt.variants.length) { log('bieżnia nadal jedzie — próbuję innej komendy pauzy'); this.sendPauseTry(); return; }
+    this.pauseTry = null;
+    log('⚠ bieżnia nie pauzuje przez Bluetooth — pauza będzie robiona jako stop + wznowienie z tą samą prędkością');
+    settings.pauseCmd = -1; saveSettings(); syncSettingsUi();
+    this.softPause();
+  }
+
+  softPause() {
+    this.softPaused = { speed: this.pauseSpeed || this.lastRunSpeed };
+    this.enqueue([FS.CONTROL, FS.C_STOP], 'pauza (stop)', { ctl: true }, true);
+  }
+
+  stop() {
+    this.target = null; this.pauseTry = null; this.softPaused = null; this.carry = null;
+    this.dropTargets();
+    this.enqueue([FS.CONTROL, FS.C_STOP], 'stop', { ctl: true }, true);
+  }
+
+  get pausedLike() { return this.s.status === 10 || (!!this.softPaused && !this.s.running); }
 }
 
 /* ---------- FTMS (Fitness Machine Service 0x1826) ---------- */
@@ -577,6 +665,7 @@ let device = null, tm = null, userDisconnect = false, connecting = false, reconn
 
 function statusName(t) {
   if (!t) return connecting ? 'łączenie…' : 'rozłączona';
+  if (t.pausedLike) return 'pauza';
   switch (t.s.status) {
     case 0: return 'gotowa';
     case 1: return 'koniec';
@@ -743,7 +832,7 @@ function renderNow() {
   const on = !!tm;
   const pill = $('#statusPill');
   pill.textContent = statusName(tm);
-  pill.dataset.k = !on ? '' : tm.s.status === 3 ? 'run' : tm.s.status === 10 ? 'pause' : (tm.s.status === 5 || tm.s.status === 6) ? 'err' : 'ok';
+  pill.dataset.k = !on ? '' : tm.s.status === 3 ? 'run' : tm.pausedLike ? 'pause' : (tm.s.status === 5 || tm.s.status === 6) ? 'err' : 'ok';
 
   const cb = $('#connectBtn');
   cb.textContent = on ? 'Rozłącz' : connecting ? 'Łączenie…' : device ? 'Połącz ponownie' : 'Połącz';
@@ -753,13 +842,14 @@ function renderNow() {
   $('#speedVal').textContent = on ? fmt1(tm.s.speed) : '–';
   const p = pendingSpeed();
   const t = $('#targetLine');
-  if (on && p != null) t.textContent = tm.s.running ? `→ ${fmt1(p)} km/h` : `start z ${fmt1(p)} km/h`;
+  if (on && tm.softPaused && !tm.s.running) t.textContent = `wznowienie z ${fmt1(tm.softPaused.speed || tm.wantedStart())} km/h`;
+  else if (on && p != null) t.textContent = tm.s.running ? `→ ${fmt1(p)} km/h` : `start z ${fmt1(p)} km/h`;
   else if (on && !tm.s.running && tm.s.status !== 2) t.textContent = `start z ${fmt1(clamp(tm.wantedStart(), tm.min, tm.max))} km/h`;
   else t.textContent = '';
 
   for (const id of ['#minusBtn', '#plusBtn', '#startBtn', '#pauseBtn', '#stopBtn']) $(id).disabled = !on;
   if (on) {
-    $('#startBtn').textContent = tm.s.status === 10 ? 'Wznów' : 'Start';
+    $('#startBtn').textContent = tm.pausedLike ? 'Wznów' : 'Start';
     $('#startBtn').disabled = tm.s.status === 3 || tm.s.status === 2;
     $('#pauseBtn').disabled = tm.s.status !== 3;
   }
@@ -814,6 +904,7 @@ $('#rawSend').addEventListener('click', () => {
   tm.sendRaw(bytes);
 });
 
+function syncSettingsUi() { const el = $('#sPause'); if (el) el.value = String(settings.pauseCmd); }
 function bindSetting(id, key, parse = (v) => v, prop = 'value') {
   const el = $(id);
   el[prop] = settings[key];
@@ -825,6 +916,7 @@ bindSetting('#sPresets', 'presets');
 bindSetting('#sWeight', 'weight', (v) => Number(v) || DEFAULTS.weight);
 bindSetting('#sProto', 'protocol');
 bindSetting('#sMiles', 'miles', Boolean, 'checked');
+bindSetting('#sPause', 'pauseCmd', Number);
 
 if (!navigator.bluetooth) showBanner(NO_BT_MSG());
 renderPresets();
